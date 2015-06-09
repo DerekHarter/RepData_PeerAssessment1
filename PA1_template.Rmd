@@ -8,18 +8,216 @@ output:
 
 ## Loading and preprocessing the data
 
+First we will extract the files from the zip archive, so we can read them in.
+The data is a simple comma separated values (csv) formatted table with 3 columns
+of information.  We can load all of the data initially into the table using
+the read.csv() function.
 
+```{r}
+unzip('activity.zip')
+activity <- read.csv('activity.csv')
+summary(activity)
+```
+
+The steps column holds the number of steps that occur in 5 minute intervals,
+and we note that there are 2304 missing values for our steps attribute out
+of 17568 observations.  Some other things to note, there are 288 observations
+each day, because taking readings every 5 minutes over a 24hr * 60min period
+results in 288 observations per day.  Knowing there are 288 observations
+per day, we can infer recordings were made over a 61 day period, from 
+2012-10-01 to 2012-11-31 (because 17568 observations / 288 per day = 61 days)
+
+```{r}
+(24 * 60) / 5
+17568 / 288
+```
+
+The date column is read in as a string, but obviously holds a well formatted
+date value.  Likewise, the interval column is read in as an integer, but this
+is really representing a time value using a 24 hour clock format.  We will 
+probably want to do a lot of processing using the actual date/times, so lets
+do a bit of preprocessing.  First of all we will create a datetime attribute 
+that uses the date and interval fields to determine a valid datetime object.
+And we will also then convert the date column into a true date object.
+
+```{r}
+library(lubridate)
+activity$datetime <- ymd_hm(paste(activity$date, sprintf("%04d", activity$interval)))
+summary(activity$datetime)
+activity$date <- ymd(activity$date)
+summary(activity$date)
+```
 
 ## What is mean total number of steps taken per day?
 
+We first want to calculate the total number of steps by day.  There are many
+ways to accomplish this in R, but one simple way is to treat the date as
+a factor and aggregrate the steps by date using the sum of the steps.
 
+```{r}
+stepsperday <- aggregate(steps ~ date, activity, sum) 
+stepsperday
+```
+
+We note there are only 53 days that have a total steps calculated.  This is
+because 8 days in the data set do not have any step data for any interval
+during the day (all intervals are NA).  We will deal with this missing
+data later.
+
+We can create a histogram of the step totals per day using the basic plotting
+system hist() function:
+
+```{r}
+hist(stepsperday$steps, breaks=10, main = 'Frequency of total step count per day', xlab = 'Steps')
+```
+
+The quartials, as well as the Mean and Median of the total step count per day can
+be computed using the summary command.
+
+```{r}
+summary(stepsperday$steps)
+```
 
 ## What is the average daily activity pattern?
 
+Here we will do basically the opposite of our previous summary and aggregrate
+the steps activity using the interval as our factor.  Here we want to aggregrate
+the average number of steps in that interval.  
 
+```{r}
+stepsperinterval <- aggregate(steps ~ interval, activity, mean) 
+```
+
+Now plot this data as a time series, using the interval on the x axis, and
+our mean activity data for the y axis.
+
+```{r}
+with(stepsperinterval, plot(interval, steps, type='l', main = 'Average steps per interval', xlab='time of day'))
+```
+
+From the figure we can see that for this data sometime in the early morning,
+before 10:00, is when the maximum average number of steps occur.  This
+maximum occurs at:
+
+```{r}
+stepsperinterval[stepsperinterval$steps == max(stepsperinterval$steps),]
+```
+
+So we see for this data the maximum is occuring for the 8:35 interval, and
+averages just over 206 steps per day during this period.
 
 ## Imputing missing values
 
+The total number of missing values for the steps variable is 2304 missing
+values.
+
+```{r}
+summary(activity$steps)
+sum(is.na(activity$steps))
+```
+
+One question not asked in this assignment is, do the NA values represent
+days that are completely missing, or are there some days that partially
+have step values, and partially have some NA values.  I believe it is
+probably the former.  As we have noted from previous work, there are
+a total of 8 days that completely have NA missing values.  8 days
+times 288 missing values
+
+```{r}
+8 * 288
+```
+
+is exactly 2304, which seems likely not to be a coincedence.  One way to check
+is to extract only those observations with NA values for the steps, then
+see which set of dates NA values occur on:
+
+```{r}
+missing <- activity[is.na(activity$steps),]
+levels(as.factor(missing$date))
+```
+
+As can be seen there are only 8 days that contain missing data.  Also these
+correspond to those 8 days that were missing when we summed the steps by day.
+
+Knowing that it is basically 8 whole days that are missing activity data, it 
+makes the most sense that we represent these missing days by using
+the average steps by interval to fill them in.  We already have an example
+of calculating this aggregration when we created our time series above.
+One further question, since these are averages they will no longer be
+whole integer units.  I suppose there might be some analysis where these
+not being whole numbers as we would expect might cause a problem in which
+case we could simple round these averages to their nearest values to use
+as our approximation.  I have not done this, but the round() function could
+easily be added to the next bit of code where we imute our missing values.
+
+So the idea is that for each day we want to impute the mean value for
+the given interval to replace each NA value.  If we are completely sure that
+whole days are missing, the simplest method is to use R's ability to
+repeat values when assigning one list/arrays values to a larger set.  We
+can impute our 8 missing days, then, in the following manner:
+
+```{r}
+missing.index <- is.na(activity$steps)
+stepsperinterval <- aggregate(steps ~ interval, activity, mean) 
+activity[missing.index, 'steps'] <- stepsperinterval$steps
+sum(is.na(activity$steps))
+```
+
+This successfully replaces all of the NA missing values.  Because there were
+288 mean values in the stepsperinterval$steps data, this set of values
+was repeated 8 times to fill in the 2304 missing NA steps values.
+
+So now we redo our calculation of the total number of steps per day
+calculation, and display a histogram of the data.
+
+```{r}
+stepsperday <- aggregate(steps ~ date, activity, sum) 
+hist(stepsperday$steps, breaks=10, main = 'Frequency of total step count per day', xlab = 'Steps')
+```
+
+Basicaly as you would expect, we ended up adding 8 days that now have exactly the
+average total number of steps, so the largest bin has gone from a frequency of
+16 to 24 now for this histogram.  Looking at the mean and median:
+
+```{r}
+summary(stepsperday$steps)
+```
+
+The mean value has not changed, as we would expect since we added 8 days with
+the same mean as the original 53 nonmissing days.  However, the median value
+does change slightly, so that mean and median are basically about the same now.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Lets first create a factor variable to separate the days into those on the
+weekend (Saturday or Sunday) or those during the weekday.  
+
+```{r}
+activity$daytype <- 'weekday'
+weekend.index <- weekdays(activity$date) == "Saturday" | weekdays(activity$date) == "Sunday"
+activity[weekend.index, 'daytype'] = 'weekend'
+activity$daytype <- as.factor(activity$daytype)
+summary(activity$daytype)
+```
+
+Now we will create a panel plot of time series data comparing the average 
+number of steps by interval, breaking out on the weekday/weekend factor.
+
+```{r}
+s <- aggregate(steps ~ interval + daytype, activity, mean)
+weekday = s[s$daytype == 'weekday',]
+weekend = s[s$daytype == 'weekend',]
+```
+
+```{r}
+par(mfrow = c(2,1))
+
+with(weekday, plot(interval, steps, type='l', main = 'Weekday activity'))
+with(weekend, plot(interval, steps, type='l', main = 'Weekend activity'))
+```
+
+```{r}
+library(lattice)
+xyplot(steps ~ interval | daytype, data = s, type = 'l', layout=c(1,2))
+```
